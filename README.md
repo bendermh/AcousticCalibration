@@ -1,27 +1,63 @@
 # Acoustic Calibration Tool
 
-A simple Python tool for acoustic calibration and tone generation, with a minimal GUI.
+**Acoustic Calibration Tool** is an open-source real-time spectrum analyzer and acoustic calibration software developed in Python. It is designed for fast and reliable measurement, analysis, and documentation of audio signals using standard USB microphones or soundcards. The tool features a user-friendly graphical interface (Tkinter), live FFT visualization, dBFS calibration, and is ideal for both professional and educational use.
+
+---
 
 ## Features
-- Generate pure tones at user-selected frequency, amplitude, and duration.
-- Play tones via your audio output.
-- (Planned) Real-time visualization of microphone input and spectrum.
-- Easy-to-use graphical interface, suitable for education and quick checks.
 
-## How to Use
-1. Set the desired frequency (Hz), gain (0-1), and duration (seconds).
-2. Click **Play Tone** to generate and play the tone.
-3. (Planned) Observe the real-time plot of the microphone input.
+- **Real-time spectrum analysis** with adjustable FFT window and smoothing  
+- **dBFS amplitude scale** for calibration and objective measurements  
+- **Peak detection:** automatic and manual (user-selectable frequency)  
+- **Configurable frequency and amplitude ranges** (min/max, smoothing, peak)  
+- **Supports all standard audio input devices** (USB soundcards, built-in mics)  
+- **Save spectrum image** (including annotated peaks and configuration)  
+- **Safe cross-platform GUI:** runs on Windows, macOS, and Linux (requires Python 3.9+)  
+- **Modern dark interface** for clear visualization and screenshot-ready graphics
 
-For advanced calibration or analysis, see future updates or contribute via GitHub.
+---
 
-## Requirements
+## Installation
 
-- Python 3.8+
-- `numpy`
-- `sounddevice`
-- `matplotlib`
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/bendermh/AcousticCalibration.git
+   cd AcousticCalibration
+   ```
 
-Install with:
-```bash
-pip install numpy sounddevice matplotlib
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+   or, individually:
+   ```bash
+   pip install numpy sounddevice matplotlib
+   ```
+
+---
+
+## Usage
+
+1. Run the tool:
+   ```bash
+   python calibration_tool.py
+   ```
+
+2. Select your audio device and configure the spectrum parameters as needed.
+
+3. Click "Start" to begin real-time analysis.
+
+4. Use the interface to adjust smoothing, frequency range, or select peaks (auto/manual).
+
+5. Save the spectrum image for documentation or further analysis.
+
+---
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+**Project maintained by Jorge Rey-Martinez.**  
+[https://github.com/bendermh/AcousticCalibration](https://github.com/bendermh/AcousticCalibration)
