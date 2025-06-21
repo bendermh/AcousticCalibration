@@ -15,6 +15,13 @@
 - Interfaz en inglés, apta para uso clínico y de laboratorio
 - Protocolo de cierre seguro, robusto para evitar errores de threads/GUI
 
+## Licencia
+
+Este software se publica bajo la licencia **MIT**.  
+Puedes usar, modificar, redistribuir e incluso vender este software, SIEMPRE incluyendo esta licencia y el aviso de copyright.
+
+Ver archivo [LICENSE](./LICENSE) para más detalles.
+
 ## Instalación
 
 Este software requiere Python 3.8+ y los siguientes paquetes:
