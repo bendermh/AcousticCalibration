@@ -1,38 +1,27 @@
-# AcousticCalibration
+# Acoustic Calibration Tool
 
-**AcousticCalibration** es una herramienta de análisis espectral y calibración acústica en tiempo real, diseñada para mediciones fiables con interfaz sencilla. Permite visualizar el espectro de cualquier entrada de micrófono, ajustar los parámetros de la ventana de análisis y exportar resultados fácilmente.
+A simple Python tool for acoustic calibration and tone generation, with a minimal GUI.
 
-![Screenshot](./docs/screenshot.png)
+## Features
+- Generate pure tones at user-selected frequency, amplitude, and duration.
+- Play tones via your audio output.
+- (Planned) Real-time visualization of microphone input and spectrum.
+- Easy-to-use graphical interface, suitable for education and quick checks.
 
-## Características principales
+## How to Use
+1. Set the desired frequency (Hz), gain (0-1), and duration (seconds).
+2. Click **Play Tone** to generate and play the tone.
+3. (Planned) Observe the real-time plot of the microphone input.
 
-- Selección de dispositivo de entrada (micrófono)
-- Control en tiempo real de rango de frecuencias (mínimo/máximo)
-- Ajuste de rango de amplitud en dBFS (Y min/max)
-- Smoothing configurable en tiempo real
-- Marcador de pico automático y manual (con anotaciones en la gráfica)
-- Guardado de la gráfica como imagen (PNG) incluyendo anotaciones
-- Interfaz en inglés, apta para uso clínico y de laboratorio
-- Protocolo de cierre seguro, robusto para evitar errores de threads/GUI
+For advanced calibration or analysis, see future updates or contribute via GitHub.
 
-## Licencia
+## Requirements
 
-Este software se publica bajo la licencia **MIT**.  
-Puedes usar, modificar, redistribuir e incluso vender este software, SIEMPRE incluyendo esta licencia y el aviso de copyright.
-
-Ver archivo [LICENSE](./LICENSE) para más detalles.
-
-## Instalación
-
-Este software requiere Python 3.8+ y los siguientes paquetes:
-
+- Python 3.8+
 - `numpy`
-- `matplotlib`
 - `sounddevice`
-- `tkinter` (incluido en la mayoría de instalaciones de Python)
-- `scipy` (solo si quieres ampliar cálculos futuros)
+- `matplotlib`
 
-Instala dependencias así:
-
-```sh
-pip install numpy matplotlib sounddevice
+Install with:
+```bash
+pip install numpy sounddevice matplotlib
