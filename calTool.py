@@ -1,98 +1,482 @@
 # -*- coding: utf-8 -*-
 """
-Acoustic calibration tool
-19/06/2025 Jorge Rey-Martinez
-
+Acoustic Calibration Tool
+Tabbed interface: Spectrum Analyzer & Calibration Assistant (dBFS only)
+2025, Jorge Rey-Martinez
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import sounddevice as sd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import json
+
+FREQUENCIES = [500, 1000, 2000, 4000, 8000]
+DB_HL_STEPS = list(range(0, 80, 5))  # 0 to 75 dB HL
 
 class SpectrumAnalyzerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Real-time Spectrum Analyzer")
-        self.root.geometry("1000x620")
+        self.root.title("Acoustic Calibration Tool")
+        self.root.geometry("1440x700")
         self.running = False
         self.stream = None
         self.update_interval = 100
         self.fft_size = 2048
         self.sample_rate = 44100
 
-        self.freq_min = tk.DoubleVar(value=20)
-        self.freq_max = tk.DoubleVar(value=8000)
-        self.center_freq = tk.DoubleVar(value=1000)
+        # Analyzer variables
+        self.freq_min = tk.DoubleVar(value=250)
+        self.freq_max = tk.DoubleVar(value=8500)
         self.manual_freq = tk.DoubleVar(value=0)
         self.ymin = tk.DoubleVar(value=-100)
         self.ymax = tk.DoubleVar(value=0)
-        self.smooth_factor = tk.DoubleVar(value=0.4)
+        self.smooth_factor = tk.DoubleVar(value=0.8)
 
         self.selected_device = tk.StringVar()
         self.device_list = self.get_input_devices()
         if self.device_list:
             self.selected_device.set(self.device_list[0])
 
-        self.init_ui()
+        # Calibration variables
+        self.calib_freq = tk.IntVar(value=1000)
+        self.calib_data = {
+            f: {
+                "db_hl": [v for v in DB_HL_STEPS],
+                "dbfs_ref": ["" for _ in DB_HL_STEPS],
+                "dbfs_1": ["" for _ in DB_HL_STEPS],
+                "dbfs_2": ["" for _ in DB_HL_STEPS],
+                "gain_1": ["" for _ in DB_HL_STEPS],
+                "gain_2": ["" for _ in DB_HL_STEPS],
+            } for f in FREQUENCIES
+        }
+
+        # Peak values (shared)
+        self.auto_peak = {"freq": None, "val": None}
+        self.manual_peak = {"freq": None, "val": None}
+
+        self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def init_ui(self):
-        frame = ttk.Frame(self.root, padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
+    def build_ui(self):
+        self.tabs = ttk.Notebook(self.root)
+        self.tabs.pack(fill=tk.BOTH, expand=True)
 
-        # Row 0: Device + Buttons
-        ttk.Label(frame, text="Input device:").grid(row=0, column=0, sticky=tk.W)
-        self.device_menu = ttk.OptionMenu(frame, self.selected_device, self.selected_device.get(), *self.device_list)
+        # === Spectrum Analyzer Tab ===
+        self.spectrum_frame = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(self.spectrum_frame, text="Spectrum Analyzer")
+
+        ttk.Label(self.spectrum_frame, text="Input device:").grid(row=0, column=0, sticky=tk.W)
+        self.device_menu = ttk.OptionMenu(self.spectrum_frame, self.selected_device, self.selected_device.get(), *self.device_list)
         self.device_menu.grid(row=0, column=1, sticky=tk.W)
+        ttk.Button(self.spectrum_frame, text="Start", command=self.start_stream).grid(row=0, column=2)
+        ttk.Button(self.spectrum_frame, text="Stop", command=self.stop_stream).grid(row=0, column=3)
+        ttk.Button(self.spectrum_frame, text="Save Image", command=self.save_image).grid(row=0, column=4)
+        
+        ttk.Label(self.spectrum_frame, text="Min freq (Hz):").grid(row=1, column=0, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.freq_min, width=8).grid(row=1, column=1)
+        ttk.Label(self.spectrum_frame, text="Max freq (Hz):").grid(row=1, column=2, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.freq_max, width=8).grid(row=1, column=3)
+        ttk.Label(self.spectrum_frame, text="Y min (dBFS):").grid(row=1, column=4, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.ymin, width=8).grid(row=1, column=5)
+        ttk.Label(self.spectrum_frame, text="Y max (dBFS):").grid(row=1, column=6, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.ymax, width=8).grid(row=1, column=7)
 
-        ttk.Button(frame, text="Start", command=self.start_stream).grid(row=0, column=2)
-        ttk.Button(frame, text="Stop", command=self.stop_stream).grid(row=0, column=3)
-        ttk.Button(frame, text="Save Image", command=self.save_image).grid(row=0, column=4)
+        ttk.Label(self.spectrum_frame, text="Manual peak (Hz):").grid(row=2, column=0, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.manual_freq, width=8).grid(row=2, column=1)
+        ttk.Label(self.spectrum_frame, text="Smoothing [0.0–0.999]:").grid(row=2, column=2, sticky=tk.E)
+        ttk.Entry(self.spectrum_frame, textvariable=self.smooth_factor, width=8).grid(row=2, column=3)
 
-        # Row 1: Frequency and Y-axis range
-        ttk.Label(frame, text="Min freq (Hz):").grid(row=1, column=0, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.freq_min, width=8).grid(row=1, column=1)
-
-        ttk.Label(frame, text="Max freq (Hz):").grid(row=1, column=2, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.freq_max, width=8).grid(row=1, column=3)
-
-        ttk.Label(frame, text="Y min (dBFS):").grid(row=1, column=4, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.ymin, width=8).grid(row=1, column=5)
-
-        ttk.Label(frame, text="Y max (dBFS):").grid(row=1, column=6, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.ymax, width=8).grid(row=1, column=7)
-
-        # Row 2: Manual peak and smoothing
-        ttk.Label(frame, text="Manual peak (Hz):").grid(row=2, column=0, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.manual_freq, width=8).grid(row=2, column=1)
-
-        ttk.Label(frame, text="Smoothing [0.0–0.999]:").grid(row=2, column=2, sticky=tk.E)
-        ttk.Entry(frame, textvariable=self.smooth_factor, width=8).grid(row=2, column=3)
-
-        # Plot
-        self.fig, self.ax = plt.subplots(figsize=(9, 4), dpi=100)
+        self.fig, self.ax = plt.subplots(figsize=(13, 5), dpi=100)
         self.line, = self.ax.plot([], [], color="orange")
         self.auto_marker = self.ax.axvline(0, color="red", linestyle="--")
         self.manual_marker = self.ax.axvline(0, color="yellow", linestyle=":")
         self.auto_text = self.ax.text(0, 0, "", color="red", fontsize=10, ha="left", va="bottom")
         self.manual_text = self.ax.text(0, 0, "", color="yellow", fontsize=10, ha="left", va="bottom")
-
         self.ax.set_facecolor("#2e2e2e")
         self.fig.patch.set_facecolor("#2e2e2e")
         self.ax.tick_params(colors="white")
-        self.ax.spines[:].set_color("white")
+        for spine in self.ax.spines.values():
+            spine.set_color("white")
         self.ax.set_xlabel("Frequency (Hz)", color="white")
         self.ax.set_ylabel("Amplitude (dBFS)", color="white")
+        self.ax.title.set_color("white")
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.spectrum_frame)
         self.canvas.get_tk_widget().grid(row=3, column=0, columnspan=8, pady=(10, 5))
 
         self.status = tk.StringVar(value="Idle")
-        ttk.Label(frame, textvariable=self.status).grid(row=4, column=0, columnspan=8, pady=(5, 10))
+        ttk.Label(self.spectrum_frame, textvariable=self.status).grid(row=4, column=0, columnspan=8, pady=(5, 10))
 
+        # === Calibration Assistant Tab ===
+        self.calib_frame = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(self.calib_frame, text="Calibration Assistant")
+
+        ttk.Label(self.calib_frame, text="Calibration frequency (Hz):").grid(row=0, column=0, sticky=tk.E, padx=(0,5))
+        freq_selector = ttk.Combobox(self.calib_frame, textvariable=self.calib_freq, values=FREQUENCIES, width=8, state="readonly")
+        freq_selector.grid(row=0, column=1, sticky=tk.W, padx=(0,15))
+        freq_selector.bind("<<ComboboxSelected>>", lambda e: self.update_calib_table_and_plot())
+        ttk.Button(self.calib_frame, text="Save Calibration", command=self.save_calibration).grid(row=0, column=2, padx=5)
+        ttk.Button(self.calib_frame, text="Load Calibration", command=self.load_calibration).grid(row=0, column=3, padx=5)
+        ttk.Button(self.calib_frame, text="Clear Data", command=self.clear_calibration_data).grid(row=0, column=4, padx=5)
+        
+        self.calib_fig, self.calib_ax = plt.subplots(figsize=(6.5, 4.5), dpi=100)
+        self.calib_canvas = FigureCanvasTkAgg(self.calib_fig, master=self.calib_frame)
+        self.calib_canvas.get_tk_widget().grid(row=1, column=0, rowspan=len(DB_HL_STEPS)+3, padx=(0,20), pady=10)
+
+        headers = ["dB HL (ref)", "dBFS (ref)", "Gain 1", "Expected 1", "Gain 2", "Expected 2"]
+        for i, h in enumerate(headers):
+            ttk.Label(self.calib_frame, text=h, anchor="center", font=("Segoe UI", 10, "bold")).grid(row=1, column=1+i, padx=5, pady=2)
+
+        self.calib_entries = []
+        for row, db_hl in enumerate(DB_HL_STEPS):
+            row_entries = []
+            entry_dbhl = ttk.Label(self.calib_frame, text=f"{db_hl}", width=8, anchor="center")
+            entry_dbhl.grid(row=2+row, column=1, padx=3, pady=1)
+            row_entries.append(entry_dbhl)
+            # dBFS ref
+            e_dbfs = ttk.Entry(self.calib_frame, width=8, justify="center")
+            e_dbfs.grid(row=2+row, column=2, padx=3, pady=1)
+            e_dbfs.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_ref"))
+            row_entries.append(e_dbfs)
+            # dBFS 1
+            e_dbfs1 = ttk.Entry(self.calib_frame, width=8, justify="center")
+            e_dbfs1.grid(row=2+row, column=3, padx=3, pady=1)
+            e_dbfs1.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_1"))
+            row_entries.append(e_dbfs1)
+            # Expected 1 (readonly)
+            e_exp1 = ttk.Label(self.calib_frame, text="", width=10, anchor="center", background="#444", foreground="white")
+            e_exp1.grid(row=2+row, column=4, padx=3, pady=1)
+            row_entries.append(e_exp1)
+            # dBFS 2
+            e_dbfs2 = ttk.Entry(self.calib_frame, width=8, justify="center")
+            e_dbfs2.grid(row=2+row, column=5, padx=3, pady=1)
+            e_dbfs2.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_2"))
+            row_entries.append(e_dbfs2)
+            # Expected 2 (readonly)
+            e_exp2 = ttk.Label(self.calib_frame, text="", width=10, anchor="center", background="#444", foreground="white")
+            e_exp2.grid(row=2+row, column=6, padx=3, pady=1)
+            row_entries.append(e_exp2)
+            self.calib_entries.append(row_entries)
+
+        self.regression_text = tk.StringVar(value="")
+        ttk.Label(self.calib_frame, textvariable=self.regression_text, font=("Segoe UI", 10)).grid(
+            row=2+len(DB_HL_STEPS), column=0, columnspan=7, pady=(55,10), sticky=tk.W)
+
+        self.calib_auto_peak_text = tk.StringVar(value="Auto peak: N/A")
+        self.calib_manual_peak_text = tk.StringVar(value="Manual peak: N/A")
+        ttk.Label(self.calib_frame, textvariable=self.calib_auto_peak_text, font=("Segoe UI", 10, "bold")).grid(
+            row=3+len(DB_HL_STEPS), column=1, columnspan=3, pady=(10,0), sticky=tk.W)
+        ttk.Label(self.calib_frame, textvariable=self.calib_manual_peak_text, font=("Segoe UI", 10, "bold")).grid(
+            row=3+len(DB_HL_STEPS), column=4, columnspan=3, pady=(10,0), sticky=tk.W)
+
+        self.update_calib_table_and_plot()
+        self.update_calib_peaks()
+
+    # === Calibration methods ===
+    def update_calib_table_and_plot(self):
+        freq = self.calib_freq.get()
+        data = self.calib_data[freq]
+    
+        # Solo necesitas la regresión logarítmica: dBFS(ref) vs log10(Gain 1/2)
+        reg_gain1 = self.get_log_regression(data["gain_1"], data["dbfs_ref"])
+        reg_gain2 = self.get_log_regression(data["gain_2"], data["dbfs_ref"])
+    
+        for idx, row_entries in enumerate(self.calib_entries):
+            # dBFS ref
+            row_entries[1].delete(0, tk.END)
+            if data["dbfs_ref"][idx] != "":
+                row_entries[1].insert(0, data["dbfs_ref"][idx])
+            # Gain 1
+            row_entries[2].delete(0, tk.END)
+            if data["gain_1"][idx] != "":
+                row_entries[2].insert(0, data["gain_1"][idx])
+            # Expected 1
+            try:
+                dbfs_target = float(data["dbfs_ref"][idx])
+                gain_needed = self.invert_log_regression(reg_gain1, dbfs_target)
+                if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
+                    row_entries[3].config(text=f"{gain_needed:.3f}")
+                else:
+                    row_entries[3].config(text="")
+            except Exception:
+                row_entries[3].config(text="")
+            # Gain 2
+            row_entries[4].delete(0, tk.END)
+            if data["gain_2"][idx] != "":
+                row_entries[4].insert(0, data["gain_2"][idx])
+            # Expected 2
+            try:
+                dbfs_target = float(data["dbfs_ref"][idx])
+                gain_needed = self.invert_log_regression(reg_gain2, dbfs_target)
+                if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
+                    row_entries[5].config(text=f"{gain_needed:.3f}")
+                else:
+                    row_entries[5].config(text="")
+            except Exception:
+                row_entries[5].config(text="")
+        self.update_calib_plot(reg_gain1, reg_gain2)
+
+    def get_log_regression(self, gain_list, dbfs_list):
+        """Regresión logarítmica: dbfs = a * log10(gain) + b"""
+        x, y = [], []
+        for g, d in zip(gain_list, dbfs_list):
+            try:
+                g = float(g)
+                d = float(d)
+                if g > 0:
+                    x.append(np.log10(g))
+                    y.append(d)
+            except:
+                continue
+        if len(x) > 1:
+            coefs = np.polyfit(x, y, 1)
+            # y = a*log10(gain) + b
+            return coefs
+        return None
+
+    def invert_log_regression(self, coefs, dbfs_target):
+         """Para y = a*log10(x) + b, despeja x = 10^((y-b)/a)"""
+         if coefs is None:
+             return None
+         a, b = coefs
+         if abs(a) < 1e-8:
+             return None
+         val = 10 ** ((dbfs_target - b) / a)
+         return val if np.isfinite(val) and val > 0 else None
+     
+    def get_gain_to_dbhl_regression(self, gain_list, dbhl_list):
+        x, y = [], []
+        for g, dbhl in zip(gain_list, dbhl_list):
+            try:
+                g = float(g)
+                dbhl = float(dbhl)
+                if g > 0:
+                    x.append(np.log10(g))
+                    y.append(dbhl)
+            except:
+                continue
+        if len(x) > 1:
+            coefs = np.polyfit(x, y, 1)  # Y = m*X + n
+            return coefs
+        else:
+            return None
+
+    def get_regression(self, data, key):
+        x_vals, y_vals = [], []
+        for i, v in enumerate(data[key]):
+            try:
+                y = float(v)
+                x = data["db_hl"][i]
+                y_vals.append(y)
+                x_vals.append(x)
+            except:
+                continue
+        if len(x_vals) > 1:
+            coefs = np.polyfit(x_vals, y_vals, 1)
+            fit = np.poly1d(coefs)
+            r2 = self.calc_r2(x_vals, y_vals, fit)
+            return (fit, coefs, r2)
+        else:
+            return (None, None, None)
+
+    def on_calib_cell_edit(self, idx, col):
+        freq = self.calib_freq.get()
+        data = self.calib_data[freq]
+        entry_map = {
+            "dbfs_ref": 1, "gain_1": 2, "gain_2": 4
+        }
+        if col not in entry_map:
+            return
+        e = self.calib_entries[idx][entry_map[col]]
+        val = e.get()
+        data[col][idx] = val  # Primero actualiza el modelo de datos
+        # Solo refresca Expected columns, no toda la tabla
+        self.update_expected_columns_only()
+        
+    def update_expected_columns_only(self):
+        freq = self.calib_freq.get()
+        data = self.calib_data[freq]
+        reg_gain1 = self.get_log_regression(data["gain_1"], data["dbfs_ref"])
+        reg_gain2 = self.get_log_regression(data["gain_2"], data["dbfs_ref"])
+        for idx, row_entries in enumerate(self.calib_entries):
+            # Expected 1
+            try:
+                dbfs_target = float(data["dbfs_ref"][idx])
+                gain_needed = self.invert_log_regression(reg_gain1, dbfs_target)
+                if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
+                    row_entries[3].config(text=f"{gain_needed:.3f}")
+                else:
+                    row_entries[3].config(text="")
+            except Exception:
+                row_entries[3].config(text="")
+            # Expected 2
+            try:
+                dbfs_target = float(data["dbfs_ref"][idx])
+                gain_needed = self.invert_log_regression(reg_gain2, dbfs_target)
+                if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
+                    row_entries[5].config(text=f"{gain_needed:.3f}")
+                else:
+                    row_entries[5].config(text="")
+            except Exception:
+                row_entries[5].config(text="")
+
+    def update_calib_plot(self, reg_gain1, reg_gain2):
+        freq = self.calib_freq.get()
+        data = self.calib_data[freq]
+        self.calib_ax.clear()
+        self.calib_ax.set_facecolor("#2e2e2e")
+        self.calib_fig.patch.set_facecolor("#2e2e2e")
+        self.calib_ax.tick_params(colors="white")
+        for spine in self.calib_ax.spines.values():
+            spine.set_color("white")
+        self.calib_ax.set_xlabel("dB HL", color="white")
+        self.calib_ax.set_ylabel("dBFS", color="white")
+        self.calib_ax.title.set_color("white")
+        self.calib_ax.set_title(f"Calibration curves {freq} Hz")
+    
+        # Reference dBFS (medida)
+        x_ref, y_ref = [], []
+        for i, v in enumerate(data["dbfs_ref"]):
+            try:
+                y = float(v)
+                x = data["db_hl"][i]
+                x_ref.append(x)
+                y_ref.append(y)
+            except:
+                continue
+        if len(x_ref) > 0:
+            self.calib_ax.plot(x_ref, y_ref, "o-", label="Reference dBFS", color="#2E86C1")
+    
+        eq_texts = []
+        
+        # Expected y puntos para Device 1
+        if reg_gain1 is not None:
+            a1, b1 = reg_gain1
+            dbfs_expected1 = []
+            x_real1, y_real1 = [], []
+            for idx, x in enumerate(x_ref):
+                try:
+                    gain = float(data["gain_1"][DB_HL_STEPS.index(x)])
+                    if gain > 0:
+                        dbfs_calc = a1 * np.log10(gain) + b1
+                        dbfs_expected1.append(dbfs_calc)
+                        x_real1.append(x)
+                        y_real1.append(dbfs_calc)
+                    else:
+                        dbfs_expected1.append(np.nan)
+                except:
+                    dbfs_expected1.append(np.nan)
+            self.calib_ax.plot(x_ref, dbfs_expected1, "x--", label="Expected Device 1 dBFS", color="#28B463")
+            if len(x_real1) > 0:
+                self.calib_ax.plot(x_real1, y_real1, "o", label="Measured Device 1 dBFS", color="#E67E22")
+            r2_1 = self.r2_log_fit(data["gain_1"], data["dbfs_ref"], reg_gain1)
+            eq_texts.append(f"Device 1: dBFS = {a1:.3f}·log10(Gain) + {b1:.2f}   (R² = {r2_1:.3f})")
+            coefs_1 = self.get_gain_to_dbhl_regression(data["gain_1"], data["db_hl"])
+            if coefs_1 is not None:
+                m1, n1 = coefs_1
+                eq_texts.append(f"Device 1: dB HL = {m1:.3f}·log10(Gain) + {n1:.2f}")
+    
+        # Expected y puntos para Device 2
+        if reg_gain2 is not None:
+            a2, b2 = reg_gain2
+            dbfs_expected2 = []
+            x_real2, y_real2 = [], []
+            for idx, x in enumerate(x_ref):
+                try:
+                    gain = float(data["gain_2"][DB_HL_STEPS.index(x)])
+                    if gain > 0:
+                        dbfs_calc = a2 * np.log10(gain) + b2
+                        dbfs_expected2.append(dbfs_calc)
+                        x_real2.append(x)
+                        y_real2.append(dbfs_calc)
+                    else:
+                        dbfs_expected2.append(np.nan)
+                except:
+                    dbfs_expected2.append(np.nan)
+            self.calib_ax.plot(x_ref, dbfs_expected2, "x--", label="Expected Device 2 dBFS", color="#E74C3C")
+            if len(x_real2) > 0:
+                self.calib_ax.plot(x_real2, y_real2, "o", label="Measured Device 2 dBFS", color="#FFB300")
+            r2_2 = self.r2_log_fit(data["gain_2"], data["dbfs_ref"], reg_gain2)
+            eq_texts.append(f"Device 2: dBFS = {a2:.3f}·log10(Gain) + {b2:.2f}   (R² = {r2_2:.3f})")
+            coefs_2 = self.get_gain_to_dbhl_regression(data["gain_2"], data["db_hl"])
+            if coefs_2 is not None:
+                m2, n2 = coefs_2
+                eq_texts.append(f"Device 2: dB HL = {m2:.3f}·log10(Gain) + {n2:.2f}")
+        
+        self.calib_ax.legend(loc="best", facecolor="#2e2e2e", edgecolor="white", labelcolor="white")
+        self.calib_ax.grid(True, color="#888")
+        self.calib_canvas.draw()
+        self.regression_text.set("\n".join(eq_texts) if eq_texts else "")
+
+    def calc_r2(self, x, y, fit):
+        y_pred = fit(x)
+        ss_res = np.sum((np.array(y) - y_pred) ** 2)
+        ss_tot = np.sum((np.array(y) - np.mean(y)) ** 2)
+        return 1 - ss_res / ss_tot if ss_tot > 0 else float('nan')
+    
+    def r2_log_fit(self, gain_list, dbfs_list, coefs):
+        """R² for log-fit: y = a * log10(gain) + b"""
+        x, y = [], []
+        for g, d in zip(gain_list, dbfs_list):
+            try:
+                g = float(g)
+                d = float(d)
+                if g > 0:
+                    x.append(np.log10(g))
+                    y.append(d)
+            except:
+                continue
+        if len(x) < 2:
+            return float('nan')
+        a, b = coefs
+        y_pred = a * np.array(x) + b
+        ss_res = np.sum((np.array(y) - y_pred) ** 2)
+        ss_tot = np.sum((np.array(y) - np.mean(y)) ** 2)
+        return 1 - ss_res / ss_tot if ss_tot > 0 else float('nan')
+    
+    def clear_calibration_data(self):
+        freq = self.calib_freq.get()
+        for col in ["dbfs_ref", "gain_1", "gain_2"]:
+            self.calib_data[freq][col] = ["" for _ in DB_HL_STEPS]
+        self.update_calib_table_and_plot()
+
+    def save_calibration(self):
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json", filetypes=[("JSON files", "*.json")]
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.calib_data, f, indent=2)
+            messagebox.showinfo("Save Calibration", "Calibration data saved successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save calibration:\n{e}")
+
+    def load_calibration(self):
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json", filetypes=[("JSON files", "*.json")]
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            for freq in FREQUENCIES:
+                key_freq = str(freq)
+                if key_freq in loaded:
+                    for col in ["db_hl", "dbfs_ref", "dbfs_1", "dbfs_2", "gain_1", "gain_2"]:
+                        if col in loaded[key_freq]:
+                            self.calib_data[freq][col] = loaded[key_freq][col]
+            self.update_calib_table_and_plot()
+            messagebox.showinfo("Load Calibration", "Calibration data loaded successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load calibration:\n{e}")
+
+    # === Spectrum analyzer methods ===
     def get_input_devices(self):
         devices = sd.query_devices()
         return [d["name"] for d in devices if d["max_input_channels"] > 0]
@@ -113,14 +497,12 @@ class SpectrumAnalyzerApp:
             smooth = 0.0
             self.smooth_factor.set(0.0)
             msg.append("Smoothing limited to 0.0")
-
         try:
             manual = float(self.manual_freq.get())
         except:
             manual = 0.0
             self.manual_freq.set(0.0)
             msg.append("Manual peak set to 0")
-
         if msg:
             self.status.set(" | ".join(msg))
         return smooth, manual
@@ -132,12 +514,10 @@ class SpectrumAnalyzerApp:
         spectrum = np.fft.rfft(data)
         freqs = np.fft.rfftfreq(len(data), 1 / self.sample_rate)
         magnitude = 20 * np.log10(np.abs(spectrum) + 1e-10)
-
         if not hasattr(self, "smooth_mag"):
             self.smooth_mag = magnitude
         else:
             self.smooth_mag = self.smooth_factor_value * self.smooth_mag + (1 - self.smooth_factor_value) * magnitude
-
         self.freqs = freqs
         self.magnitude = self.smooth_mag
 
@@ -148,7 +528,6 @@ class SpectrumAnalyzerApp:
             self.line.set_data(self.freqs, self.magnitude)
             self.ax.set_xlim(self.freq_min.get(), self.freq_max.get())
             self.ax.set_ylim(self.ymin.get(), self.ymax.get())
-
             mask = (self.freqs >= self.freq_min.get()) & (self.freqs <= self.freq_max.get())
             if np.any(mask):
                 max_idx = np.argmax(self.magnitude[mask])
@@ -159,32 +538,46 @@ class SpectrumAnalyzerApp:
                 self.auto_marker.set_xdata([peak_freq])
                 self.auto_text.set_position((peak_freq, peak_val))
                 self.auto_text.set_text(f"{int(peak_freq)} Hz\n{peak_val:.1f} dB")
+                self.auto_peak = {"freq": int(peak_freq), "val": float(peak_val)}
             else:
                 peak_freq = 0
                 peak_val = 0
                 self.auto_marker.set_xdata([0])
                 self.auto_text.set_text("")
-
+                self.auto_peak = {"freq": None, "val": None}
             manual_freq = self.manual_freq.get()
             if manual_freq == 0:
                 self.manual_marker.set_xdata([0])
                 self.manual_text.set_text("")
                 manual_val = 0
+                self.manual_peak = {"freq": None, "val": None}
             else:
                 idx = np.argmin(np.abs(self.freqs - manual_freq))
                 manual_val = self.magnitude[idx]
                 self.manual_marker.set_xdata([manual_freq])
                 self.manual_text.set_position((manual_freq, manual_val))
                 self.manual_text.set_text(f"{int(manual_freq)} Hz\n{manual_val:.1f} dB")
-
+                self.manual_peak = {"freq": int(manual_freq), "val": float(manual_val)}
             self.status.set(
                 f"Auto peak: {int(peak_freq)} Hz / {peak_val:.1f} dB   |   "
                 f"Manual peak: {int(manual_freq)} Hz / {manual_val:.1f} dB"
             )
-
+            self.update_calib_peaks()
             self.canvas.draw()
-
         self.root.after(self.update_interval, self.update_plot)
+
+    def update_calib_peaks(self):
+        # Synchronize calibration tab with current peaks
+        if self.auto_peak["freq"] is not None and self.auto_peak["val"] is not None:
+            txt = f"Auto peak: {self.auto_peak['freq']} Hz / {self.auto_peak['val']:.1f} dB"
+        else:
+            txt = "Auto peak: N/A"
+        self.calib_auto_peak_text.set(txt)
+        if self.manual_peak["freq"] is not None and self.manual_peak["val"] is not None:
+            txt = f"Manual peak: {self.manual_peak['freq']} Hz / {self.manual_peak['val']:.1f} dB"
+        else:
+            txt = "Manual peak: N/A"
+        self.calib_manual_peak_text.set(txt)
 
     def start_stream(self):
         if self.running:
@@ -213,16 +606,14 @@ class SpectrumAnalyzerApp:
         self.enable_controls()
 
     def disable_controls(self):
-        for child in self.root.winfo_children():
-            for subchild in child.winfo_children():
-                if isinstance(subchild, ttk.Entry) or isinstance(subchild, ttk.OptionMenu):
-                    subchild.configure(state="disabled")
+        for child in self.spectrum_frame.winfo_children():
+            if isinstance(child, (ttk.Entry, ttk.OptionMenu)):
+                child.configure(state="disabled")
 
     def enable_controls(self):
-        for child in self.root.winfo_children():
-            for subchild in child.winfo_children():
-                if isinstance(subchild, ttk.Entry) or isinstance(subchild, ttk.OptionMenu):
-                    subchild.configure(state="normal")
+        for child in self.spectrum_frame.winfo_children():
+            if isinstance(child, (ttk.Entry, ttk.OptionMenu)):
+                child.configure(state="normal")
 
     def save_image(self):
         file_path = filedialog.asksaveasfilename(defaultextension=".png")
