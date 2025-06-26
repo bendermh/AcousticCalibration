@@ -40,7 +40,7 @@
 
 1. Run the tool:
    ```bash
-   python calibration_tool.py
+   python calTool.py
    ```
 
 2. Select your audio device and configure the spectrum parameters as needed.
