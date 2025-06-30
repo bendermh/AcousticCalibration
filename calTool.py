@@ -15,12 +15,20 @@ import json
 
 FREQUENCIES = [500, 1000, 2000, 4000, 8000]
 DB_HL_STEPS = list(range(0, 80, 5))  # 0 to 75 dB HL
+# Data for clinical audiometer in lour laboratory, only as demo purposes or to be used as example reference
+DEFAULT_DBFS_REF = {
+    500:  ["-76.0", "-71.0", "-66.0", "-61.0", "-56.0", "-51.0", "-46.0", "-41.0", "-36.0", "-31.0", "-26.0", "-21.0", "-16.0", "-11.0", "-6.0", "-1.0"],
+    1000: ["-87.0", "-82.0", "-77.0", "-72.0", "-67.0", "-63.0", "-58.0", "-53.0", "-48.0", "-43.0", "-38.0", "-33.0", "-28.0", "-23.0", "-18.0", "-13.0"],
+    2000: ["-86.0", "-81.0", "-76.0", "-71.0", "-66.0", "-61.0", "-56.0", "-51.0", "-46.0", "-41.0", "-36.0", "-31.0", "-26.0", "-21.0", "-16.0", "-11.0"],
+    4000: ["-76.0", "-71.0", "-66.0", "-61.0", "-56.0", "-51.0", "-46.0", "-41.0", "-36.0", "-31.0", "-26.0", "-21.0", "-16.0", "-11.0", "-6.0", "-1.0"],
+    8000: ["-91.0", "-86.0", "-81.0", "-76.0", "-72.0", "-67.0", "-62.0", "-57.0", "-52.0", "-47.0", "-42.0", "-37.0", "-32.0", "-27.0", "-22.0", "-17.0"]
+}
 
 class SpectrumAnalyzerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Acoustic Calibration Tool")
-        self.root.geometry("1440x700")
+        self.root.geometry("1440x750")
         self.running = False
         self.stream = None
         self.update_interval = 100
@@ -63,7 +71,7 @@ class SpectrumAnalyzerApp:
     def build_ui(self):
         self.tabs = ttk.Notebook(self.root)
         self.tabs.pack(fill=tk.BOTH, expand=True)
-
+    
         # === Spectrum Analyzer Tab ===
         self.spectrum_frame = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(self.spectrum_frame, text="Spectrum Analyzer")
@@ -111,67 +119,93 @@ class SpectrumAnalyzerApp:
         ttk.Label(self.spectrum_frame, textvariable=self.status).grid(row=4, column=0, columnspan=8, pady=(5, 10))
 
         # === Calibration Assistant Tab ===
-        self.calib_frame = ttk.Frame(self.tabs, padding=10)
+        self.calib_frame = ttk.Frame(self.tabs, padding=18)
         self.tabs.add(self.calib_frame, text="Calibration Assistant")
-
-        ttk.Label(self.calib_frame, text="Calibration frequency (Hz):").grid(row=0, column=0, sticky=tk.E, padx=(0,5))
-        freq_selector = ttk.Combobox(self.calib_frame, textvariable=self.calib_freq, values=FREQUENCIES, width=8, state="readonly")
-        freq_selector.grid(row=0, column=1, sticky=tk.W, padx=(0,15))
-        freq_selector.bind("<<ComboboxSelected>>", lambda e: self.update_calib_table_and_plot())
-        ttk.Button(self.calib_frame, text="Save Calibration", command=self.save_calibration).grid(row=0, column=2, padx=5)
-        ttk.Button(self.calib_frame, text="Load Calibration", command=self.load_calibration).grid(row=0, column=3, padx=5)
-        ttk.Button(self.calib_frame, text="Clear Data", command=self.clear_calibration_data).grid(row=0, column=4, padx=5)
         
-        self.calib_fig, self.calib_ax = plt.subplots(figsize=(6.5, 4.5), dpi=100)
+        # Top controls: spacing and standard button font
+        ttk.Label(self.calib_frame, text="Calibration frequency (Hz):", font=("Segoe UI", 12)).grid(
+            row=0, column=0, sticky=tk.E, padx=(2,8), pady=(4,12))
+        freq_selector = ttk.Combobox(
+            self.calib_frame,
+            textvariable=self.calib_freq,
+            values=FREQUENCIES,
+            width=7,
+            state="readonly",
+            font=("Segoe UI", 12)
+        )
+        freq_selector.grid(row=0, column=1, sticky=tk.W, padx=(2,16), pady=(4,12))
+        freq_selector.bind("<<ComboboxSelected>>", lambda e: self.update_calib_table_and_plot())
+        
+        ttk.Button(self.calib_frame, text="Save", command=self.save_calibration).grid(row=0, column=2, padx=(8,8), pady=(4,12))
+        ttk.Button(self.calib_frame, text="Load", command=self.load_calibration).grid(row=0, column=3, padx=(8,8), pady=(4,12))
+        ttk.Button(self.calib_frame, text="Load Example", command=self.load_default_dbfs_ref).grid(row=0, column=4, padx=(8,8), pady=(4,12))
+        ttk.Button(self.calib_frame, text="Clear", command=self.clear_calibration_data).grid(row=0, column=5, padx=(8,8), pady=(4,12))
+        
+        # Calibration plot with extra separation from table
+        self.calib_fig, self.calib_ax = plt.subplots(figsize=(6.5, 4.4), dpi=100)
         self.calib_canvas = FigureCanvasTkAgg(self.calib_fig, master=self.calib_frame)
-        self.calib_canvas.get_tk_widget().grid(row=1, column=0, rowspan=len(DB_HL_STEPS)+3, padx=(0,20), pady=10)
-
-        headers = ["dB HL (ref)", "dBFS (ref)", "Gain 1", "Expected 1", "Gain 2", "Expected 2"]
+        self.calib_canvas.get_tk_widget().grid(row=1, column=0, rowspan=len(DB_HL_STEPS)+3, padx=(0,25), pady=(14,8))
+        
+        # Table headers: bigger font, less crowded
+        headers = ["dB HL", "dBFS", "Gain 1", "Exp 1", "Gain 2", "Exp 2"]
         for i, h in enumerate(headers):
-            ttk.Label(self.calib_frame, text=h, anchor="center", font=("Segoe UI", 10, "bold")).grid(row=1, column=1+i, padx=5, pady=2)
-
+            ttk.Label(self.calib_frame, text=h, anchor="center", font=("Segoe UI", 12, "bold")).grid(
+                row=1, column=1+i, padx=4, pady=(2,8)
+            )
+        
         self.calib_entries = []
         for row, db_hl in enumerate(DB_HL_STEPS):
             row_entries = []
-            entry_dbhl = ttk.Label(self.calib_frame, text=f"{db_hl}", width=8, anchor="center")
-            entry_dbhl.grid(row=2+row, column=1, padx=3, pady=1)
+            # 0: dB HL (Label)
+            entry_dbhl = ttk.Label(self.calib_frame, text=f"{db_hl}", width=7, anchor="center", font=("Segoe UI", 12))
+            entry_dbhl.grid(row=2+row, column=1, padx=3, pady=2)
             row_entries.append(entry_dbhl)
-            # dBFS ref
-            e_dbfs = ttk.Entry(self.calib_frame, width=8, justify="center")
-            e_dbfs.grid(row=2+row, column=2, padx=3, pady=1)
+            # 1: dBFS ref (Entry)
+            e_dbfs = ttk.Entry(self.calib_frame, width=7, justify="center", font=("Segoe UI", 12))
+            e_dbfs.grid(row=2+row, column=2, padx=3, pady=2)
             e_dbfs.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_ref"))
             row_entries.append(e_dbfs)
-            # dBFS 1
-            e_dbfs1 = ttk.Entry(self.calib_frame, width=8, justify="center")
-            e_dbfs1.grid(row=2+row, column=3, padx=3, pady=1)
-            e_dbfs1.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_1"))
-            row_entries.append(e_dbfs1)
-            # Expected 1 (readonly)
-            e_exp1 = ttk.Label(self.calib_frame, text="", width=10, anchor="center", background="#444", foreground="white")
-            e_exp1.grid(row=2+row, column=4, padx=3, pady=1)
+            # 2: Gain 1 (Entry)
+            e_gain1 = ttk.Entry(self.calib_frame, width=7, justify="center", font=("Segoe UI", 12))
+            e_gain1.grid(row=2+row, column=3, padx=3, pady=2)
+            e_gain1.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "gain_1"))
+            row_entries.append(e_gain1)
+            # 3: Expected 1 (Label, readonly)
+            e_exp1 = ttk.Label(self.calib_frame, text="", width=7, anchor="center", background="#444", foreground="white", font=("Segoe UI", 12, "bold"))
+            e_exp1.grid(row=2+row, column=4, padx=3, pady=2)
             row_entries.append(e_exp1)
-            # dBFS 2
-            e_dbfs2 = ttk.Entry(self.calib_frame, width=8, justify="center")
-            e_dbfs2.grid(row=2+row, column=5, padx=3, pady=1)
-            e_dbfs2.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "dbfs_2"))
-            row_entries.append(e_dbfs2)
-            # Expected 2 (readonly)
-            e_exp2 = ttk.Label(self.calib_frame, text="", width=10, anchor="center", background="#444", foreground="white")
-            e_exp2.grid(row=2+row, column=6, padx=3, pady=1)
+            # 4: Gain 2 (Entry)
+            e_gain2 = ttk.Entry(self.calib_frame, width=7, justify="center", font=("Segoe UI", 12))
+            e_gain2.grid(row=2+row, column=5, padx=3, pady=2)
+            e_gain2.bind("<FocusOut>", lambda e, idx=row: self.on_calib_cell_edit(idx, "gain_2"))
+            row_entries.append(e_gain2)
+            # 5: Expected 2 (Label, readonly)
+            e_exp2 = ttk.Label(self.calib_frame, text="", width=7, anchor="center", background="#444", foreground="white", font=("Segoe UI", 12, "bold"))
+            e_exp2.grid(row=2+row, column=6, padx=3, pady=2)
             row_entries.append(e_exp2)
             self.calib_entries.append(row_entries)
-
+        
+        # Regression results: large, bold and blue for visibility
         self.regression_text = tk.StringVar(value="")
-        ttk.Label(self.calib_frame, textvariable=self.regression_text, font=("Segoe UI", 10)).grid(
-            row=2+len(DB_HL_STEPS), column=0, columnspan=7, pady=(55,10), sticky=tk.W)
-
+        ttk.Label(
+            self.calib_frame,
+            textvariable=self.regression_text,
+            font=("Segoe UI", 16, "bold"),
+            foreground="#2255dd",  # Strong blue, visible on dark background
+            anchor="w",
+            justify="left"
+        ).grid(
+            row=2+len(DB_HL_STEPS), column=0, columnspan=7,
+            pady=(32, 16), padx=(0, 0), sticky=tk.W
+        )
+        
         self.calib_auto_peak_text = tk.StringVar(value="Auto peak: N/A")
         self.calib_manual_peak_text = tk.StringVar(value="Manual peak: N/A")
-        ttk.Label(self.calib_frame, textvariable=self.calib_auto_peak_text, font=("Segoe UI", 10, "bold")).grid(
-            row=3+len(DB_HL_STEPS), column=1, columnspan=3, pady=(10,0), sticky=tk.W)
-        ttk.Label(self.calib_frame, textvariable=self.calib_manual_peak_text, font=("Segoe UI", 10, "bold")).grid(
-            row=3+len(DB_HL_STEPS), column=4, columnspan=3, pady=(10,0), sticky=tk.W)
-
+        ttk.Label(self.calib_frame, textvariable=self.calib_auto_peak_text, font=("Segoe UI", 12, "bold")).grid(
+            row=3+len(DB_HL_STEPS), column=1, columnspan=3, pady=(12,0), sticky=tk.W)
+        ttk.Label(self.calib_frame, textvariable=self.calib_manual_peak_text, font=("Segoe UI", 12, "bold")).grid(
+            row=3+len(DB_HL_STEPS), column=4, columnspan=3, pady=(12,0), sticky=tk.W)
+        
         self.update_calib_table_and_plot()
         self.update_calib_peaks()
 
@@ -179,21 +213,19 @@ class SpectrumAnalyzerApp:
     def update_calib_table_and_plot(self):
         freq = self.calib_freq.get()
         data = self.calib_data[freq]
-    
-        # Solo necesitas la regresión logarítmica: dBFS(ref) vs log10(Gain 1/2)
         reg_gain1 = self.get_log_regression(data["gain_1"], data["dbfs_ref"])
         reg_gain2 = self.get_log_regression(data["gain_2"], data["dbfs_ref"])
-    
         for idx, row_entries in enumerate(self.calib_entries):
-            # dBFS ref
+            # dB HL [col 0] (Label) -- no se actualiza
+            # dBFS ref [col 1]
             row_entries[1].delete(0, tk.END)
             if data["dbfs_ref"][idx] != "":
                 row_entries[1].insert(0, data["dbfs_ref"][idx])
-            # Gain 1
+            # Gain 1 [col 2]
             row_entries[2].delete(0, tk.END)
             if data["gain_1"][idx] != "":
                 row_entries[2].insert(0, data["gain_1"][idx])
-            # Expected 1
+            # Expected 1 [col 3] (Label, solo .config)
             try:
                 dbfs_target = float(data["dbfs_ref"][idx])
                 gain_needed = self.invert_log_regression(reg_gain1, dbfs_target)
@@ -203,11 +235,11 @@ class SpectrumAnalyzerApp:
                     row_entries[3].config(text="")
             except Exception:
                 row_entries[3].config(text="")
-            # Gain 2
+            # Gain 2 [col 4]
             row_entries[4].delete(0, tk.END)
             if data["gain_2"][idx] != "":
                 row_entries[4].insert(0, data["gain_2"][idx])
-            # Expected 2
+            # Expected 2 [col 5] (Label, solo .config)
             try:
                 dbfs_target = float(data["dbfs_ref"][idx])
                 gain_needed = self.invert_log_regression(reg_gain2, dbfs_target)
@@ -286,15 +318,20 @@ class SpectrumAnalyzerApp:
         freq = self.calib_freq.get()
         data = self.calib_data[freq]
         entry_map = {
-            "dbfs_ref": 1, "gain_1": 2, "gain_2": 4
+            "dbfs_ref": 1,
+            "gain_1": 2,
+            "dbfs_1": 3,
+            "gain_2": 4,
+            "dbfs_2": 5
         }
         if col not in entry_map:
             return
         e = self.calib_entries[idx][entry_map[col]]
         val = e.get()
-        data[col][idx] = val  # Primero actualiza el modelo de datos
-        # Solo refresca Expected columns, no toda la tabla
-        self.update_expected_columns_only()
+        data[col][idx] = val  # Update the model data
+    
+        # Update all
+        self.update_calib_table_and_plot()
         
     def update_expected_columns_only(self):
         freq = self.calib_freq.get()
@@ -352,7 +389,7 @@ class SpectrumAnalyzerApp:
     
         eq_texts = []
         
-        # Expected y puntos para Device 1
+        # Expected for Device 1
         if reg_gain1 is not None:
             a1, b1 = reg_gain1
             dbfs_expected1 = []
@@ -379,7 +416,7 @@ class SpectrumAnalyzerApp:
                 m1, n1 = coefs_1
                 eq_texts.append(f"Device 1: dB HL = {m1:.3f}·log10(Gain) + {n1:.2f}")
     
-        # Expected y puntos para Device 2
+        # Expected for Device 2
         if reg_gain2 is not None:
             a2, b2 = reg_gain2
             dbfs_expected2 = []
@@ -439,7 +476,7 @@ class SpectrumAnalyzerApp:
     
     def clear_calibration_data(self):
         freq = self.calib_freq.get()
-        for col in ["dbfs_ref", "gain_1", "gain_2"]:
+        for col in ["dbfs_ref", "gain_1", "gain_2", "dbfs_1", "dbfs_2"]:
             self.calib_data[freq][col] = ["" for _ in DB_HL_STEPS]
         self.update_calib_table_and_plot()
 
@@ -475,6 +512,13 @@ class SpectrumAnalyzerApp:
             messagebox.showinfo("Load Calibration", "Calibration data loaded successfully.")
         except Exception as e:
             messagebox.showerror("Error", f"Could not load calibration:\n{e}")
+            
+    def load_default_dbfs_ref(self):
+        # Load example reference data
+        for freq in FREQUENCIES:
+            self.calib_data[freq]["dbfs_ref"] = DEFAULT_DBFS_REF[freq].copy()
+        self.update_calib_table_and_plot()
+        messagebox.showinfo("Default loaded", "Default dBFS ref values loaded successfully.")
 
     # === Spectrum analyzer methods ===
     def get_input_devices(self):
