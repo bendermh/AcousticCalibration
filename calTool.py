@@ -230,7 +230,7 @@ class SpectrumAnalyzerApp:
                 dbfs_target = float(data["dbfs_ref"][idx])
                 gain_needed = self.invert_log_regression(reg_gain1, dbfs_target)
                 if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
-                    row_entries[3].config(text=f"{gain_needed:.3f}")
+                    row_entries[3].config(text=f"{gain_needed:.4f}")
                 else:
                     row_entries[3].config(text="")
             except Exception:
@@ -244,7 +244,7 @@ class SpectrumAnalyzerApp:
                 dbfs_target = float(data["dbfs_ref"][idx])
                 gain_needed = self.invert_log_regression(reg_gain2, dbfs_target)
                 if gain_needed is not None and np.isfinite(gain_needed) and gain_needed > 0:
-                    row_entries[5].config(text=f"{gain_needed:.3f}")
+                    row_entries[5].config(text=f"{gain_needed:.4f}")
                 else:
                     row_entries[5].config(text="")
             except Exception:
