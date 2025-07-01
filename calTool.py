@@ -28,7 +28,7 @@ class SpectrumAnalyzerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Acoustic Calibration Tool")
-        self.root.geometry("1440x750")
+        self.root.geometry("1420x750")
         self.running = False
         self.stream = None
         self.update_interval = 100
