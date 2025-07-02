@@ -523,31 +523,35 @@ class SpectrumAnalyzerApp:
         messagebox.showinfo("Default loaded", "Default dBFS ref values loaded successfully.")
         
     def export_calibration_csv(self):
-        freq = self.calib_freq.get()
-        data = self.calib_data[freq]
         file_path = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            title="Export Calibration as CSV"
+            title="Export Calibration Gains as CSV"
         )
         if not file_path:
             return
-        headers = ["dB HL", "dBFS ref", "Gain 1", "Expected 1", "Gain 2", "Expected 2"]
+    
+        # Prepare headers
+        headers = ["dB HL"]
+        for f in FREQUENCIES:
+            headers.append(f"Gain_1_{f}")
+        for f in FREQUENCIES:
+            headers.append(f"Gain_2_{f}")
+    
         try:
             with open(file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow([f"Frequency: {freq} Hz"])
                 writer.writerow(headers)
-                for i in range(len(DB_HL_STEPS)):
-                    writer.writerow([
-                        data["db_hl"][i],
-                        data["dbfs_ref"][i],
-                        data["gain_1"][i],
-                        self.calib_entries[i][3].cget("text"),  # Expected 1
-                        data["gain_2"][i],
-                        self.calib_entries[i][5].cget("text"),  # Expected 2
-                    ])
-            messagebox.showinfo("Export CSV", "Calibration exported successfully.")
+                for idx, dbhl in enumerate(DB_HL_STEPS):
+                    row = [dbhl]
+                    # Gain 1 for all frequencies
+                    for f in FREQUENCIES:
+                        row.append(self.calib_data[f]["gain_1"][idx])
+                    # Gain 2 for all frequencies
+                    for f in FREQUENCIES:
+                        row.append(self.calib_data[f]["gain_2"][idx])
+                    writer.writerow(row)
+            messagebox.showinfo("Export CSV", "Calibration gains exported successfully.")
         except Exception as e:
             messagebox.showerror("Error", f"Could not export CSV:\n{e}")
 
