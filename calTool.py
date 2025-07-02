@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Acoustic Calibration Tool
-Tabbed interface: Spectrum Analyzer & Calibration Assistant (dBFS only)
+Spectrum Analyzer & Calibration Assistant (dBFS only)
 2025, Jorge Rey-Martinez
 """
 
@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import json
+import csv
 
 FREQUENCIES = [500, 1000, 2000, 4000, 8000]
 DB_HL_STEPS = list(range(0, 80, 5))  # 0 to 75 dB HL
@@ -28,7 +29,7 @@ class SpectrumAnalyzerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Acoustic Calibration Tool")
-        self.root.geometry("1420x750")
+        self.root.geometry("1440x750")
         self.running = False
         self.stream = None
         self.update_interval = 100
@@ -41,7 +42,7 @@ class SpectrumAnalyzerApp:
         self.manual_freq = tk.DoubleVar(value=0)
         self.ymin = tk.DoubleVar(value=-100)
         self.ymax = tk.DoubleVar(value=0)
-        self.smooth_factor = tk.DoubleVar(value=0.8)
+        self.smooth_factor = tk.DoubleVar(value=0.9)
 
         self.selected_device = tk.StringVar()
         self.device_list = self.get_input_devices()
@@ -140,6 +141,7 @@ class SpectrumAnalyzerApp:
         ttk.Button(self.calib_frame, text="Load", command=self.load_calibration).grid(row=0, column=3, padx=(8,8), pady=(4,12))
         ttk.Button(self.calib_frame, text="Load Example", command=self.load_default_dbfs_ref).grid(row=0, column=4, padx=(8,8), pady=(4,12))
         ttk.Button(self.calib_frame, text="Clear", command=self.clear_calibration_data).grid(row=0, column=5, padx=(8,8), pady=(4,12))
+        ttk.Button(self.calib_frame, text="Export CSV", command=self.export_calibration_csv).grid(row=0, column=6, padx=(8, 2), pady=(4, 12))
         
         # Calibration plot with extra separation from table
         self.calib_fig, self.calib_ax = plt.subplots(figsize=(6.5, 4.4), dpi=100)
@@ -519,6 +521,35 @@ class SpectrumAnalyzerApp:
             self.calib_data[freq]["dbfs_ref"] = DEFAULT_DBFS_REF[freq].copy()
         self.update_calib_table_and_plot()
         messagebox.showinfo("Default loaded", "Default dBFS ref values loaded successfully.")
+        
+    def export_calibration_csv(self):
+        freq = self.calib_freq.get()
+        data = self.calib_data[freq]
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Export Calibration as CSV"
+        )
+        if not file_path:
+            return
+        headers = ["dB HL", "dBFS ref", "Gain 1", "Expected 1", "Gain 2", "Expected 2"]
+        try:
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([f"Frequency: {freq} Hz"])
+                writer.writerow(headers)
+                for i in range(len(DB_HL_STEPS)):
+                    writer.writerow([
+                        data["db_hl"][i],
+                        data["dbfs_ref"][i],
+                        data["gain_1"][i],
+                        self.calib_entries[i][3].cget("text"),  # Expected 1
+                        data["gain_2"][i],
+                        self.calib_entries[i][5].cget("text"),  # Expected 2
+                    ])
+            messagebox.showinfo("Export CSV", "Calibration exported successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not export CSV:\n{e}")
 
     # === Spectrum analyzer methods ===
     def get_input_devices(self):
