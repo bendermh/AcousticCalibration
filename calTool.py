@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import json
 import csv
+import sys
+import os
 
 FREQUENCIES = [500, 1000, 2000, 4000, 8000]
 DB_HL_STEPS = list(range(0, 80, 5))  # 0 to 75 dB HL
@@ -24,6 +26,14 @@ DEFAULT_DBFS_REF = {
     4000: ["-76.0", "-71.0", "-66.0", "-61.0", "-56.0", "-51.0", "-46.0", "-41.0", "-36.0", "-31.0", "-26.0", "-21.0", "-16.0", "-11.0", "-6.0", "-1.0"],
     8000: ["-91.0", "-86.0", "-81.0", "-76.0", "-72.0", "-67.0", "-62.0", "-57.0", "-52.0", "-47.0", "-42.0", "-37.0", "-32.0", "-27.0", "-22.0", "-17.0"]
 }
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS  # type: ignore
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class SpectrumAnalyzerApp:
     def __init__(self, root):
@@ -68,7 +78,7 @@ class SpectrumAnalyzerApp:
 
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
+    
     def build_ui(self):
         self.tabs = ttk.Notebook(self.root)
         self.tabs.pack(fill=tk.BOTH, expand=True)
@@ -708,6 +718,7 @@ class SpectrumAnalyzerApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.iconbitmap("acoustic_icon.ico")
+    icon_path = resource_path("acoustic_icon.ico")
+    root.iconbitmap(icon_path)
     app = SpectrumAnalyzerApp(root)
     root.mainloop()
