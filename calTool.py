@@ -708,5 +708,6 @@ class SpectrumAnalyzerApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    root.iconbitmap("acoustic_icon.ico")
     app = SpectrumAnalyzerApp(root)
     root.mainloop()
